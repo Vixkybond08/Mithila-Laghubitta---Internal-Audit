@@ -1,0 +1,15 @@
+name: mithila_audit_app
+description: Internal Audit App for MLBBL
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  pdf: ^3.10.7
+  printing: ^5.11.1
+
+flutter:
+  uses-material-design: true
