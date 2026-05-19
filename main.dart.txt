@@ -1,0 +1,833 @@
+import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:path_provider/path_provider.dart';
+
+void main() => runApp(MithilaAuditApp());
+
+class MithilaAuditApp extends StatelessWidget {
+  const MithilaAuditApp({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'MLBSL Checklist',
+      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
+      home: const SecurityLockPage(),
+    );
+  }
+}
+
+class SecurityLockPage extends StatefulWidget {
+  const SecurityLockPage({Key? key}) : super(key: key);
+  @override
+  SecurityLockPageState createState() => SecurityLockPageState();
+}
+
+class SecurityLockPageState extends State<SecurityLockPage> {
+  final TextEditingController _pinController = TextEditingController();
+  int _failedAttempts = 0;
+  bool _isBlocked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkBlockStatus();
+  }
+
+  Future<void> _checkBlockStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? blockedDate = prefs.getString("blocked_date");
+    if (blockedDate != null) {
+      String todayStr = DateTime.now().toString().split(' ')[0];
+      if (blockedDate == todayStr) {
+        setState(() {
+          _isBlocked = true;
+        });
+      } else {
+        await prefs.remove("blocked_date");
+      }
+    }
+  }
+
+  Future<void> _verifyPin() async {
+    if (_isBlocked) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("App Blocked for Today! Please try tomorrow."),
+          backgroundColor: Colors.red));
+      return;
+    }
+    DateTime now = DateTime.now();
+    String correctPin = "${now.day + now.month}98";
+
+    if (_pinController.text == correctPin) {
+      Navigator.pushReplacement(context,
+          MaterialPageRoute(builder: (context) => const AuditHomePage()));
+    } else {
+      setState(() {
+        _failedAttempts++;
+      });
+      if (_failedAttempts >= 3) {
+        final prefs = await SharedPreferences.getInstance();
+        String todayStr = DateTime.now().toString().split(' ')[0];
+        await prefs.setString("blocked_date", todayStr);
+        setState(() {
+          _isBlocked = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content:
+                Text("Maximum attempts reached! App blocked until tomorrow."),
+            backgroundColor: Colors.red));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content:
+                Text("Wrong Pin.... Please contact with Mithila Laghubitta"),
+            backgroundColor: Colors.red));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.security,
+                        size: 80, color: Colors.blueAccent),
+                    const SizedBox(height: 15),
+                    const Text("Mithila Laghubitta Audit Security",
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 30),
+                    _isBlocked
+                        ? const Text(
+                            "ACCESS DENIED FOR TODAY\nPlease try again tomorrow.",
+                            style: TextStyle(
+                                color: Colors.red, fontWeight: FontWeight.bold),
+                            textAlign: TextAlign.center)
+                        : TextField(
+                            controller: _pinController,
+                            obscureText: true,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            decoration: const InputDecoration(
+                                hintText: "ENTER PIN",
+                                border: OutlineInputBorder())),
+                    const SizedBox(height: 20),
+                    if (!_isBlocked)
+                      ElevatedButton(
+                          onPressed: _verifyPin,
+                          child: const Text("Verify & Access")),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.all(8.0),
+            child: Text("Copyright Roshan Gurung 9845118748",
+                style: TextStyle(
+                    color: Colors.grey,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold)),
+          )
+        ],
+      ),
+    );
+  }
+}
+
+class AuditHomePage extends StatefulWidget {
+  const AuditHomePage({Key? key}) : super(key: key);
+  @override
+  AuditHomePageState createState() => AuditHomePageState();
+}
+
+class AuditHomePageState extends State<AuditHomePage> {
+  int _currentStep = 0;
+  final TextEditingController _branchName = TextEditingController();
+  final TextEditingController _branchAddress = TextEditingController();
+  final TextEditingController _auditPFrom = TextEditingController();
+  final TextEditingController _auditPTo = TextEditingController();
+  final TextEditingController _auditDFrom = TextEditingController();
+  final TextEditingController _auditDTo = TextEditingController();
+  final TextEditingController _noOfStaffs = TextEditingController();
+  final TextEditingController _noOfCenters = TextEditingController();
+  final TextEditingController _noOfMembers = TextEditingController();
+  final TextEditingController _noOfBorrowers = TextEditingController();
+  final TextEditingController _loanPortfolio = TextEditingController();
+  final TextEditingController _savingBalance = TextEditingController();
+  final TextEditingController _overdueLoan = TextEditingController();
+  final TextEditingController _watchlist = TextEditingController();
+
+  String _npa = "0.00 %";
+  String _npaStatus = "(Excellent)";
+  Color _npaColor = Colors.green;
+  String _prod = "0.00";
+  String _spc = "0.00";
+
+  final List<int> notes = [1000, 500, 100, 50, 20, 10, 5, 2, 1];
+  Map<int, int> noteCounts = {};
+  double totalCash = 0.0;
+
+  final List<String> items = [
+    "1. Attendance Register",
+    "2. Field Register",
+    "3. Leave Record Register",
+    "4. Staff Leave Reg/File",
+    "5. Day Book",
+    "6. Cash Register",
+    "7. Cash In Transit Register",
+    "8. Check Book Register",
+    "9. Vault Key Register",
+    "10. Loan Deed Register",
+    "11. Loan Sub-committee Reg.",
+    "12. Loan Utilization Register",
+    "13. Delay Follow-up Register",
+    "14. Collateral Loan Register",
+    "15. Darta/Chalani Register",
+    "16. Darta/Chalani File",
+    "17. Circular File",
+    "18. Staff Meeting Register",
+    "19. Staff Target/Progress File",
+    "20. Stationery Stock Register",
+    "21. Fixed Assets Register",
+    "22. Low-Cost Assets Register",
+    "23. Guest Register",
+    "24. Area/HO Inspection Report/File",
+    "25. Center Meeting File",
+    "26. Nagadi Rasid Bharpai",
+    "27. Complaint Box/Register",
+    "28. Passbook Distr. Register",
+    "29. Passbook Verification Reg.",
+    "30. Member Registration Reg.",
+    "31. Dropout Register",
+    "32. Insurance Death Claim Reg."
+  ];
+
+  Map<int, bool?> isRaised = {};
+  Map<int, bool?> isUpdated = {};
+  Map<int, TextEditingController> remarks = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _resetData();
+  }
+
+  void _resetData() {
+    for (var n in notes) noteCounts[n] = 0;
+    totalCash = 0.0;
+    for (int i = 0; i < items.length; i++) {
+      isRaised[i] = true;
+      isUpdated[i] = true;
+      remarks[i] = TextEditingController();
+    }
+    _branchName.clear();
+    _branchAddress.clear();
+    _auditPFrom.clear();
+    _auditPTo.clear();
+    _auditDFrom.clear();
+    _auditDTo.clear();
+    _noOfStaffs.clear();
+    _noOfCenters.clear();
+    _noOfMembers.clear();
+    _noOfBorrowers.clear();
+    _loanPortfolio.clear();
+    _savingBalance.clear();
+    _overdueLoan.clear();
+    _watchlist.clear();
+    _npa = "0.00 %";
+    _npaStatus = "(Excellent)";
+    _npaColor = Colors.green;
+    _prod = "0.00";
+    _spc = "0.00";
+  }
+
+  void _calculate() {
+    double lp = double.tryParse(_loanPortfolio.text) ?? 0;
+    double ol = double.tryParse(_overdueLoan.text) ?? 0;
+    double st = double.tryParse(_noOfStaffs.text) ?? 0;
+    double mb = double.tryParse(_noOfMembers.text) ?? 0;
+    double ct = double.tryParse(_noOfCenters.text) ?? 0;
+
+    setState(() {
+      double npaCalc = lp > 0 ? (ol / lp) * 100 : 0.0;
+      _npa = "${npaCalc.toStringAsFixed(2)} %";
+
+      if (npaCalc == 0.0) {
+        _npaStatus = "(Excellent)";
+        _npaColor = Colors.green;
+      } else if (npaCalc > 0.0 && npaCalc < 1.0) {
+        _npaStatus = "(Very Good)";
+        _npaColor = Colors.green;
+      } else if (npaCalc >= 1.0 && npaCalc < 2.0) {
+        _npaStatus = "(Good)";
+        _npaColor = Colors.green;
+      } else if (npaCalc >= 2.0 && npaCalc < 3.0) {
+        _npaStatus = "(Satisfactory)";
+        _npaColor = Colors.green;
+      } else if (npaCalc >= 3.0 && npaCalc <= 5.0) {
+        _npaStatus = "(Focus on Recovery)";
+        _npaColor = Colors.green;
+      } else {
+        _npaStatus =
+            "(Daily Client Meetup, One to One Deal, Focus on Recovery)";
+        _npaColor = Colors.red;
+      }
+
+      _prod = st > 0 ? (mb / st).toStringAsFixed(2) : "0.00";
+      _spc = st > 0 ? (ct / st).toStringAsFixed(2) : "0.00";
+    });
+  }
+
+  Future<Uint8List> _generatePdf() async {
+    final pdf = pw.Document();
+
+    List<List<String>> cashRows = [];
+    notes.forEach((n) {
+      if (noteCounts[n]! > 0) {
+        cashRows
+            .add(["Rs. $n", "${noteCounts[n]}", "Rs. ${n * noteCounts[n]!}"]);
+      }
+    });
+
+    pdf.addPage(pw.MultiPage(
+      build: (context) => [
+        pw.Center(
+            child: pw.Text("Mithila Laghubitta Bittiya Sanstha Ltd.",
+                style: pw.TextStyle(
+                    fontSize: 18, fontWeight: pw.FontWeight.bold))),
+        pw.SizedBox(height: 12),
+        pw.Text("1. Branch Details & Financial Ratios (Tabular View)",
+            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+        pw.SizedBox(height: 5),
+        pw.TableHelper.fromTextArray(
+          headers: ['Metric / Information Description', 'Value Details'],
+          data: [
+            ['1. Branch Name', _branchName.text],
+            ['2. Branch Address', _branchAddress.text],
+            ['3. Audit Period', "${_auditPFrom.text} to ${_auditPTo.text}"],
+            ['4. Inspection Visit', "${_auditDFrom.text} to ${_auditDTo.text}"],
+            ['5. No. of Staffs', _noOfStaffs.text],
+            ['6. No. of Members', _noOfMembers.text],
+            ['7. No. of Centers', _noOfCenters.text],
+            ['8. No. of Borrowers', _noOfBorrowers.text],
+            ['9. Loan Portfolio', "Rs. ${_loanPortfolio.text}"],
+            ['10. Saving Balance', "Rs. ${_savingBalance.text}"],
+            ['11. Overdue Loan', "Rs. ${_overdueLoan.text}"],
+            ['12. Watchlist Portfolio', _watchlist.text],
+            ['13. NPA Percentage', "$_npa $_npaStatus"],
+            ['14. Staff Productivity (Member)', _prod],
+            ['15. Center / Staff Ratio', _spc],
+          ],
+        ),
+        pw.SizedBox(height: 15),
+        pw.Text("2. Vault Cash Denomination Details",
+            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+        pw.SizedBox(height: 5),
+        cashRows.isEmpty
+            ? pw.Text("No physical cash inventory recorded.")
+            : pw.TableHelper.fromTextArray(
+                headers: ['Note Value', 'Quantity', 'Amount'], data: cashRows),
+        pw.Align(
+            alignment: pw.Alignment.centerRight,
+            child: pw.Padding(
+                padding: const pw.EdgeInsets.all(5),
+                child: pw.Text("Total Cash Balance: Rs $totalCash",
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold)))),
+        pw.SizedBox(height: 15),
+        pw.Text("3. Audit Checklist Status",
+            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+        pw.SizedBox(height: 5),
+        pw.TableHelper.fromTextArray(
+          headers: ['Item description', 'Raised', 'Updated', 'Remarks / Logic'],
+          cellStyle: const pw.TextStyle(fontSize: 9),
+          headerStyle:
+              pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
+          data: List.generate(items.length, (i) {
+            return [
+              items[i],
+              isRaised[i]! ? "Yes" : "No",
+              isUpdated[i]! ? "Yes" : "No",
+              remarks[i]!.text
+            ];
+          }),
+        ),
+      ],
+    ));
+    return pdf.save();
+  }
+
+  void _clearCurrentSection() {
+    setState(() {
+      if (_currentStep == 0) {
+        _branchName.clear();
+        _branchAddress.clear();
+        _auditPFrom.clear();
+        _auditPTo.clear();
+        _auditDFrom.clear();
+        _auditDTo.clear();
+        _noOfStaffs.clear();
+        _noOfCenters.clear();
+        _noOfMembers.clear();
+        _noOfBorrowers.clear();
+        _loanPortfolio.clear();
+        _savingBalance.clear();
+        _overdueLoan.clear();
+        _watchlist.clear();
+        _npa = "0.00 %";
+        _npaStatus = "(Excellent)";
+        _prod = "0.00";
+        _spc = "0.00";
+      } else if (_currentStep == 1) {
+        for (var n in notes) noteCounts[n] = 0;
+        totalCash = 0.0;
+      } else {
+        for (int i = 0; i < items.length; i++) {
+          isRaised[i] = true;
+          isUpdated[i] = true;
+          remarks[i]!.clear();
+        }
+      }
+    });
+  }
+
+  Future<void> _selectDate(TextEditingController c) async {
+    DateTime? p = await showDatePicker(
+        context: context,
+        initialDate: DateTime.now(),
+        firstDate: DateTime(2020),
+        lastDate: DateTime(2030));
+    if (p != null) setState(() => c.text = "${p.year}-${p.month}-${p.day}");
+  }
+
+  Future<void> _saveReportLocally() async {
+    final data = await _generatePdf();
+    final dir = await getExternalStorageDirectory();
+    String bName = _branchName.text.isEmpty ? "Branch" : _branchName.text;
+    String timeStamp = DateTime.now()
+        .toString()
+        .replaceAll(':', '-')
+        .replaceAll('.', '-')
+        .replaceAll(' ', '_'); // यहाँ replaceAll एरर फिक्स गरियो
+    final file = File("${dir!.path}/${bName}_Audit_$timeStamp.pdf");
+    await file.writeAsBytes(data);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString("Audit_${bName}_$timeStamp", file.path);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text("PDF safely saved locally in: Documents/")));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("MLBSL Checklist"), actions: [
+        IconButton(
+            icon: const Icon(Icons.history),
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (c) => const SavedReportsPage())))
+      ]),
+      body: Column(
+        children: [
+          Expanded(
+            child: Stepper(
+              type: StepperType.horizontal,
+              currentStep: _currentStep,
+              onStepContinue: () {
+                if (_currentStep == 0 && _branchName.text.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text("Branch Name is Mandatory!")));
+                  return;
+                }
+                if (_currentStep < 2) setState(() => _currentStep++);
+              },
+              onStepCancel: () {
+                if (_currentStep > 0) setState(() => _currentStep--);
+              },
+              controlsBuilder: (context, details) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16.0),
+                  child: Row(children: [
+                    OutlinedButton.icon(
+                        icon: const Icon(Icons.clear_all),
+                        label: const Text("Clear Section"),
+                        onPressed: _clearCurrentSection),
+                    const Spacer(),
+                    if (_currentStep > 0)
+                      ElevatedButton(
+                          onPressed: details.onStepCancel,
+                          child: const Text("Back")),
+                    const SizedBox(width: 8),
+                    if (_currentStep < 2)
+                      ElevatedButton(
+                          onPressed: details.onStepContinue,
+                          child: const Text("Next")),
+                  ]),
+                );
+              },
+              steps: [
+                Step(
+                    title: const Text("Info"),
+                    isActive: _currentStep >= 0,
+                    content: Column(children: [
+                      TextField(
+                          controller: _branchName,
+                          decoration: const InputDecoration(
+                              labelText: "Branch Name *",
+                              border: OutlineInputBorder())),
+                      const SizedBox(height: 8),
+                      TextField(
+                          controller: _branchAddress,
+                          decoration: const InputDecoration(
+                              labelText: "Branch Address",
+                              border: OutlineInputBorder())),
+                      const SizedBox(height: 8),
+                      Row(children: [
+                        Expanded(
+                            child: TextField(
+                                controller: _auditPFrom,
+                                readOnly: true,
+                                onTap: () => _selectDate(_auditPFrom),
+                                decoration: const InputDecoration(
+                                    labelText: "Audit Period (From)",
+                                    border: OutlineInputBorder()))),
+                        const SizedBox(width: 5),
+                        Expanded(
+                            child: TextField(
+                                controller: _auditPTo,
+                                readOnly: true,
+                                onTap: () => _selectDate(_auditPTo),
+                                decoration: const InputDecoration(
+                                    labelText: "Audit Period (To)",
+                                    border: OutlineInputBorder()))),
+                      ]),
+                      const SizedBox(height: 8),
+                      Row(children: [
+                        Expanded(
+                            child: TextField(
+                                controller: _auditDFrom,
+                                readOnly: true,
+                                onTap: () => _selectDate(_auditDFrom),
+                                decoration: const InputDecoration(
+                                    labelText: "Inspection Visit (From)",
+                                    border: OutlineInputBorder()))),
+                        const SizedBox(width: 5),
+                        Expanded(
+                            child: TextField(
+                                controller: _auditDTo,
+                                readOnly: true,
+                                onTap: () => _selectDate(_auditDTo),
+                                decoration: const InputDecoration(
+                                    labelText: "Inspection Visit (To)",
+                                    border: OutlineInputBorder()))),
+                      ]),
+                      const SizedBox(height: 8),
+                      TextField(
+                          controller: _noOfStaffs,
+                          keyboardType: TextInputType.number,
+                          onChanged: (v) => _calculate(),
+                          decoration: const InputDecoration(
+                              labelText: "No. of Staffs",
+                              border: OutlineInputBorder())),
+                      const SizedBox(height: 8),
+                      TextField(
+                          controller: _noOfMembers,
+                          keyboardType: TextInputType.number,
+                          onChanged: (v) => _calculate(),
+                          decoration: const InputDecoration(
+                              labelText: "No. of Members",
+                              border: OutlineInputBorder())),
+                      const SizedBox(height: 8),
+                      TextField(
+                          controller: _noOfCenters,
+                          keyboardType: TextInputType.number,
+                          onChanged: (v) => _calculate(),
+                          decoration: const InputDecoration(
+                              labelText: "No. of Centers",
+                              border: OutlineInputBorder())),
+                      const SizedBox(height: 8),
+                      TextField(
+                          controller: _noOfBorrowers,
+                          keyboardType: TextInputType.number,
+                          onChanged: (v) => _calculate(),
+                          decoration: const InputDecoration(
+                              labelText: "No. of Borrowers",
+                              border: OutlineInputBorder())),
+                      const SizedBox(height: 8),
+                      TextField(
+                          controller: _loanPortfolio,
+                          keyboardType: TextInputType.number,
+                          onChanged: (v) => _calculate(),
+                          decoration: const InputDecoration(
+                              labelText: "Loan Portfolio",
+                              border: OutlineInputBorder())),
+                      const SizedBox(height: 8),
+                      TextField(
+                          controller: _savingBalance,
+                          keyboardType: TextInputType.number,
+                          onChanged: (v) => _calculate(),
+                          decoration: const InputDecoration(
+                              labelText: "Saving Balance",
+                              border: OutlineInputBorder())),
+                      const SizedBox(height: 8),
+                      TextField(
+                          controller: _overdueLoan,
+                          keyboardType: TextInputType.number,
+                          onChanged: (v) => _calculate(),
+                          decoration: const InputDecoration(
+                              labelText: "Overdue Loan",
+                              border: OutlineInputBorder())),
+                      const SizedBox(height: 8),
+                      TextField(
+                          controller: _watchlist,
+                          decoration: const InputDecoration(
+                              labelText: "Watchlist Portfolio",
+                              border: OutlineInputBorder())),
+                      const SizedBox(height: 15),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        color: Colors.blue.shade50,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text("NPA Ratio: $_npa $_npaStatus",
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: _npaColor)),
+                            const SizedBox(height: 4),
+                            Text("Staff Productivity (Member): $_prod",
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue)), // यहाँ रङ फिक्स गरियो
+                            const SizedBox(height: 4),
+                            Text("Center / Staff Ratio: $_spc",
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.purple)),
+                          ],
+                        ),
+                      ),
+                    ])),
+                Step(
+                    title: const Text("Cash"),
+                    isActive: _currentStep >= 1,
+                    content: Column(children: [
+                      ...notes.map((n) => Row(children: [
+                            Expanded(child: Text("Rs. $n")),
+                            SizedBox(
+                                width: 70,
+                                child: TextField(
+                                    keyboardType: TextInputType.number,
+                                    onChanged: (v) {
+                                      noteCounts[n] = int.tryParse(v) ?? 0;
+                                      setState(() {
+                                        totalCash = 0;
+                                        noteCounts.forEach(
+                                            (k, v) => totalCash += k * v);
+                                      });
+                                    },
+                                    decoration: const InputDecoration(
+                                        hintText: "Qty"))),
+                            Expanded(
+                                child: Text("= Rs. ${n * noteCounts[n]!}",
+                                    textAlign: TextAlign.right)),
+                          ])),
+                      const Divider(),
+                      Text("Total Physical Balance: Rs $totalCash",
+                          style: const TextStyle(
+                              fontSize: 18,
+                              color: Colors.green,
+                              fontWeight: FontWeight.bold)),
+                    ])),
+                Step(
+                    title: const Text("List"),
+                    isActive: _currentStep >= 2,
+                    content: Column(children: [
+                      ...items.asMap().entries.map((e) => Card(
+                              child: Column(children: [
+                            Padding(
+                                padding: const EdgeInsets.all(6),
+                                child: Text(e.value,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold))),
+                            Row(children: [
+                              const Text("Raised?"),
+                              Radio(
+                                  value: true,
+                                  groupValue: isRaised[e.key],
+                                  onChanged: (v) => setState(
+                                      () => isRaised[e.key] = v as bool)),
+                              const Text("Yes"),
+                              Radio(
+                                  value: false,
+                                  groupValue: isRaised[e.key],
+                                  onChanged: (v) => setState(
+                                      () => isRaised[e.key] = v as bool)),
+                              const Text("No"),
+                              const SizedBox(width: 15),
+                              const Text("Updated?"),
+                              Radio(
+                                  value: true,
+                                  groupValue: isUpdated[e.key],
+                                  onChanged: (v) => setState(
+                                      () => isUpdated[e.key] = v as bool)),
+                              const Text("Yes"),
+                              Radio(
+                                  value: false,
+                                  groupValue: isUpdated[e.key],
+                                  onChanged: (v) => setState(
+                                      () => isUpdated[e.key] = v as bool)),
+                              const Text("No"),
+                            ]),
+                            Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 10),
+                                child: TextField(
+                                    controller: remarks[e.key],
+                                    decoration: const InputDecoration(
+                                        hintText:
+                                            "Enter explanation if checked 'No'"))),
+                          ]))),
+                      const SizedBox(height: 20),
+                      ElevatedButton.icon(
+                          icon: const Icon(Icons.save, color: Colors.white),
+                          style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.orange),
+                          label: const Text("Save Report Locally as PDF",
+                              style: TextStyle(color: Colors.white)),
+                          onPressed: _saveReportLocally),
+                      const SizedBox(height: 8),
+                      Row(children: [
+                        Expanded(
+                            child: ElevatedButton.icon(
+                                icon: const Icon(Icons.share),
+                                label: const Text("Share Statement"),
+                                onPressed: () async {
+                                  final data = await _generatePdf();
+                                  final dir = await getTemporaryDirectory();
+                                  final file = File(
+                                      "${dir.path}/${_branchName.text}_Audit_Report.pdf");
+                                  await file.writeAsBytes(data);
+                                  await Share.shareXFiles([XFile(file.path)]);
+                                })),
+                        const SizedBox(width: 8),
+                        Expanded(
+                            child: ElevatedButton.icon(
+                                icon: const Icon(Icons.download),
+                                label: const Text("Download PDF"),
+                                onPressed: () async => await Printing.layoutPdf(
+                                    onLayout: (f) => _generatePdf()))),
+                      ]),
+                      const Divider(height: 40),
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.add_business),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.purple,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(double.infinity, 50)),
+                        label: const Text("Add New Branch Entry"),
+                        onPressed: () {
+                          _resetData();
+                          setState(() {
+                            _currentStep = 0;
+                          });
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                              content: Text(
+                                  "All form entries cleared. Ready for next branch!")));
+                        },
+                      ),
+                    ])),
+              ],
+            ),
+          ),
+          const Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Text("Copyright Roshan Gurung 9845118748",
+                  style: TextStyle(
+                      color: Colors.grey,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold)))
+        ],
+      ),
+    );
+  }
+}
+
+class SavedReportsPage extends StatefulWidget {
+  const SavedReportsPage({Key? key}) : super(key: key);
+  @override
+  SavedReportsPageState createState() => SavedReportsPageState();
+}
+
+class SavedReportsPageState extends State<SavedReportsPage> {
+  List<String> reportKeys = [];
+  Map<String, String> keyPaths = {};
+  @override
+  void initState() {
+    super.initState();
+    loadKeys();
+  }
+
+  Future<void> loadKeys() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys().where((k) => k.startsWith("Audit_")).toList();
+    for (var k in keys) {
+      keyPaths[k] = prefs.getString(k) ?? "";
+    }
+    setState(() {
+      reportKeys = keys;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Saved Audit PDF History")),
+      body: Column(
+        children: [
+          Expanded(
+            child: ListView.builder(
+              itemCount: reportKeys.length,
+              itemBuilder: (context, i) {
+                return ListTile(
+                  leading: const Icon(Icons.picture_as_pdf, color: Colors.red),
+                  title: Text(reportKeys[i]
+                      .replaceFirst("Audit_", "")
+                      .replaceAll('_', ' ')),
+                  onTap: () async {
+                    String path = keyPaths[reportKeys[i]]!;
+                    if (await File(path).exists()) {
+                      await Share.shareXFiles([XFile(path)]);
+                    }
+                  },
+                );
+              },
+            ),
+          ),
+          const Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Text("Copyright Roshan Gurung 9845118748",
+                  style: TextStyle(
+                      color: Colors.grey,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold)))
+        ],
+      ),
+    );
+  }
+}
